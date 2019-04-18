@@ -1,7 +1,9 @@
 .ipynb_checkpoints/
 include/
+Include/
 bin/
 lib/
+Lib/
 etc/
 share/
 Scripts/
