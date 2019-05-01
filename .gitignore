@@ -8,6 +8,7 @@ etc/
 share/
 Scripts/
 datasets/
+images/
 
 pyvenv.cfg
 pip-selfcheck.json
