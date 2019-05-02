@@ -3,7 +3,7 @@ from keras.layers import Input, Dense, Reshape, Flatten, Dropout
 from keras.layers import BatchNormalization, Activation, ZeroPadding2D
 from keras.layers.advanced_activations import LeakyReLU # max(0.01x, x)b
 from keras.layers.convolutional import UpSampling2D, Conv2D
-from keras.models import Sequential, Model
+from keras.models import Sequential
 from keras.optimizers import Adam
 from keras.utils.vis_utils import model_to_dot
 
@@ -14,18 +14,18 @@ import numpy as np
 
 
 class GAN():
-    def __init__(self):
+    def __init__(self, latent_dim=100, optimizer=None, img_dir="images/gan"):
         self.img_rows = 28
         self.img_cols = 28
         self.channels = 1
         self.img_shape = (self.img_rows, self.img_cols, self.channels)
         self.latent_dim = 100
+        self.img_dir=img_dir
         
-        # Adam: Adaptive Grad + Momentum
-        # learning rate, beta_1
-        # optimizer = Adam(0.0002, 0.5) 
-        optimizer = Adam(lr=1e-5, beta_1=0.1) # こっちの方がうまくいくらしい
-        
+        if not optimizer:
+            # Adam: Adaptive Grad + Momentum
+            # learning rate, beta_1
+            optimizer = Adam(0.0002, 0.5)
         
         # Discriminatorを作成し，コンパイル
         self.discriminator = self.build_discriminator()
@@ -35,32 +35,16 @@ class GAN():
             metrics=['accuracy']
         )
         
-        
         # Generatorを作成
         self.generator = self.build_generator()
-        
-        
-        # Generatorの学習のためのCombinedネットワークを作成
-        
-        # Generatorは入力にランダムノイズを取り，画像を出力する．
-        z = Input(shape=(self.latent_dim,))
-        img = self.generator(z)
-        
-        # DiscriminatorはGeneratorの学習時，学習しない
-        # Trueに戻していないので不安になるが，compileしないと更新されないので大丈夫
-        self.discriminator.trainable = False
-        
-        # Discriminatorは入力に画像をとり，本物か偽物かの確率を出力する
-        validity = self.discriminator(img)
-        
+                
         # GeneratorとDiscriminatorからなるCombined Network
         # Combined Networkは，GeneratorがDiscriminatorを騙せるよう訓練する
-        self.combined = Model(inputs=z, outputs=validity)
+        self.combined = self.build_combined(self.generator, self.discriminator)
         self.combined.compile(loss='binary_crossentropy', optimizer=optimizer)
     
     def build_generator(self):
         model = Sequential()
-        
         model.add(Dense(256, input_dim=self.latent_dim)) #100in 256out
         model.add(LeakyReLU(alpha=0.2)) # activation
         model.add(BatchNormalization(momentum=0.8)) # boost
@@ -73,16 +57,10 @@ class GAN():
         model.add(Dense(np.prod(self.img_shape), activation='tanh')) # 画像データベクトルの生成
         model.add(Reshape(self.img_shape)) # 生成されたベクトルを画像の形に変形
         model.summary()
-        
-        noise = Input(shape=(self.latent_dim, )) # 入力層の定義
-        img = model(noise) # 学習に使う層の定義
-        
-        # noiseを受け取ってimgを出力するモデル
-        return Model(inputs=noise, outputs=img) # それらを合わせてモデルの定義
+        return model
     
     def build_discriminator(self):
-        model = Sequential()
-        
+        model = Sequential()        
         # DiscriminatorにBatchNormを入れると強くなりすぎるので入れないらしい
         model.add(Flatten(input_shape=self.img_shape))
         model.add(Dense(512))
@@ -91,12 +69,13 @@ class GAN():
         model.add(LeakyReLU(alpha=0.2))
         model.add(Dense(1, activation='sigmoid')) # sigmoidで確率を出力
         model.summary()
-        
-        img = Input(shape=self.img_shape)
-        validity = model(img)
-        
-        # imgを受け取ってそれが本物か偽物かの判定を出力するモデル
-        return Model(inputs=img, outputs=validity)
+        return model
+    
+    def build_combined(self, generator, discriminator):
+        # DiscriminatorはGeneratorの学習時，学習しない
+        # Trueに戻していないので不安になるが，compileしないと更新されないので大丈夫
+        discriminator.trainable = False
+        return Sequential([generator, discriminator])
     
     def train(self, epochs, batch_size=128, save_interval=50):
         
@@ -108,7 +87,7 @@ class GAN():
         X_train = np.expand_dims(X_train, axis=3)
         half_batch = int(batch_size / 2)
         
-        for epoch in range(epochs):
+        for epoch in range(epochs+1):
             
             # -------------------------
             # Discriminatorの学習
@@ -143,12 +122,12 @@ class GAN():
             # Generatorを学習
             g_loss = self.combined.train_on_batch(noise, valid_y)
             
-            # 進捗の表示
-            print ("%d [D loss: %f, acc.: %.2f%%] [G loss: %f]" \
-                   % (epoch, d_loss[0], 100*d_loss[1], g_loss))
-            
-            # 指定した間隔で生成画像を保存
+            # 指定した間隔で生成画像を保存 & 進捗出力
             if epoch % save_interval == 0:
+                # 進捗の表示
+                print ("%d [D loss: %f, acc.: %.2f%%] [G loss: %f]" \
+                   % (epoch, d_loss[0], 100*d_loss[1], g_loss))
+                
                 self.save_imgs(epoch)
     
     # 指定epochでの画像を保存
@@ -168,7 +147,7 @@ class GAN():
                 axs[i, j].axis('off')
                 cnt += 1
         
-        fig.savefig(f"images/gan/{epoch}.png")
+        fig.savefig(f"{self.img_dir}/{epoch}.png")
         plt.close()
     
     def visualize(self, model):
@@ -177,11 +156,11 @@ class GAN():
     
     def visualize_discriminator(self):
         print("Visualize: Discriminator")
-        return self.visualize(self.discriminator.layers[1])
+        return self.visualize(self.discriminator)
     
     def visualize_generator(self):
         print("Visualize: Generator")
-        return self.visualize(self.generator.layers[1])
+        return self.visualize(self.generator)
     
     def visualize_combined(self):
         print("Visualize: Combined")
