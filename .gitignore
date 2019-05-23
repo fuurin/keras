@@ -3,6 +3,7 @@ include/
 Include/
 bin/
 lib/
+lib64/
 Lib/
 etc/
 share/
@@ -10,5 +11,6 @@ Scripts/
 datasets/
 images/
 
+lib64
 pyvenv.cfg
 pip-selfcheck.json
